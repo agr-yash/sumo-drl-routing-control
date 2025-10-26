@@ -1,0 +1,7 @@
+<routes>
+    <vType id="AV" vClass="passenger" color="0,1,0" accel="2.6" decel="4.5" sigma="0.5" length="5" minGap="2.5" maxSpeed="15" />
+
+    <vType id="HV" vClass="passenger" color="1,0,0" accel="2.6" decel="5.0" sigma="0.5" length="5" minGap="2.5" maxSpeed="15" carFollowModel="IDM" lcPoliteness="0" />
+
+    <vTypeDistribution id="dist_mixed" vTypes="AV HV" probabilities="0.5 0.5"/>
+</routes>

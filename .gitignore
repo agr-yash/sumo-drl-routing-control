@@ -1,0 +1,30 @@
+# Python virtual environment
+# This is specific to your machine and should not be tracked.
+final_env/
+
+# Python cache files and compiled files
+# These are generated automatically by Python.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# SUMO generated files
+# These are results of scripts or the simulation itself. They can be
+# regenerated and should not be tracked in version control.
+traffic.rou.xml
+tripinfo.xml
+trips.trips.xml
+*.summary.xml
+*.emission.xml
+*.fcd.xml
+
+# IDE and editor configuration files
+# These are specific to your personal setup.
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# macOS specific files
+.DS_Store
