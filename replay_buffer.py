@@ -6,7 +6,7 @@ from collections import deque, namedtuple
 class ReplayBuffer:
 
     def __init__(self, buffer_size, batch_size):
-        self.memory = deque(maxlen = buffer_size)
+        self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
         self.experience = namedtuple(
             "Experience",
@@ -14,17 +14,16 @@ class ReplayBuffer:
         )
     
     def add(self, state, action, reward, next_state, done):
-        e = self.experience(state,action, reward, next_state, done)
+        e = self.experience(state, action, reward, next_state, done)
         self.memory.append(e)
     
     def sample(self):
-        experiences = random.sample(self.memory, k = self.batch_size)
+        experiences = random.sample(self.memory, k=self.batch_size)
 
         if torch.backends.mps.is_available():
             device = torch.device("mps")
         else:
             device = torch.device("cpu")
-        print(f"Using device: {device}")
 
         states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)

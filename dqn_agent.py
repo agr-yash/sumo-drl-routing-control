@@ -24,15 +24,15 @@ class DQNAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.epsilon = EPS_START
-
+        self.last_loss = None  # track the last loss value
 
         if torch.backends.mps.is_available():
-            device = torch.device("mps")
+            self.device = torch.device("mps")
         else:
-            device = torch.device("cpu")
+            self.device = torch.device("cpu")
         
-        self.qnetwork_local = DQN(state_size, action_size).to(device)
-        self.qnetwork_target = DQN(state_size, action_size).to(device)
+        self.qnetwork_local = DQN(state_size, action_size).to(self.device)
+        self.qnetwork_target = DQN(state_size, action_size).to(self.device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
         self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
@@ -55,12 +55,7 @@ class DQNAgent:
         if eps is None:
             eps = self.epsilon
 
-        if torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
-
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         self.qnetwork_local.eval()
         with torch.no_grad():
             action_values = self.qnetwork_local(state)
@@ -76,7 +71,7 @@ class DQNAgent:
 
         states, actions, rewards, next_states, dones = experiences
 
-        Q_targets_next = self.qnetwork_target(next_states).detach().max(1).unsqueeze(1)
+        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
@@ -86,13 +81,11 @@ class DQNAgent:
         loss.backward()
         self.optimizer.step()
 
+        self.last_loss = loss.item()  # save last loss
         self.soft_update(self.qnetwork_local, self.qnetwork_target)
-        
         self.epsilon = max(EPS_END, EPS_DECAY * self.epsilon)
 
     
     def soft_update(self, local_model, target_model, tau=1e-3):
-        
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
-
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
