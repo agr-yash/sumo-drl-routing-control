@@ -5,7 +5,6 @@ import time
 from collections import defaultdict
 import numpy as np
 import traci
-from torch.utils.tensorboard import SummaryWriter
 from dqn_agent import DQNAgent
 
 # === SUMO CONFIGURATION ===
@@ -24,8 +23,6 @@ NUM_EPISODES = 500
 MAX_STEPS_PER_EPISODE = 2000
 DECISION_ZONE_LENGTH = 50
 
-writer = SummaryWriter(log_dir=f"runs/sumo_dqn_{int(time.time())}")
-
 # === GLOBAL LANE MAP ===
 all_lane_ids = []
 edge_to_lanes_map = defaultdict(list)
@@ -35,11 +32,11 @@ edge_to_lanes_map = defaultdict(list)
 #  STATE CONSTRUCTION
 # =====================================================================
 def get_state(vehicle_id, destination_pos):
-    """Constructs a 20-element state vector for the given AV."""
-    print(f"\n[INFO] ======== STATE FETCH for {vehicle_id} ========")
+    print(f"\n[DEBUG] Enter get_state() for vehicle: {vehicle_id}")
     try:
         current_edge_id = traci.vehicle.getRoadID(vehicle_id)
         current_lane_id = traci.vehicle.getLaneID(vehicle_id)
+        print(f"[DEBUG] current_edge_id={current_edge_id}, current_lane_id={current_lane_id}")
     except traci.TraCIException as e:
         print(f"[ERROR] Failed to fetch vehicle info: {e}")
         return None
@@ -49,6 +46,7 @@ def get_state(vehicle_id, destination_pos):
     # --- Get connected edges ---
     try:
         links = traci.lane.getLinks(current_lane_id)
+        print(f"[DEBUG] Found {len(links)} outgoing links from lane {current_lane_id}")
         if not links:
             print("[WARNING] No outgoing links found.")
             return None
@@ -57,6 +55,7 @@ def get_state(vehicle_id, destination_pos):
             to_lane = link[0]
             direction = link[6]
             to_edge = traci.lane.getEdgeID(to_lane)
+            print(f"[DEBUG] Link to_lane={to_lane}, direction={direction}, to_edge={to_edge}")
             if 'r' in direction:
                 road_ids['right'] = to_edge
             elif 's' in direction:
@@ -76,9 +75,15 @@ def get_state(vehicle_id, destination_pos):
         if edge_id:
             try:
                 vehicles_on_edge = traci.edge.getLastStepVehicleIDs(edge_id)
+                print(f"[DEBUG] {road_key} edge {edge_id} has {len(vehicles_on_edge)} vehicles")
                 for v_id in vehicles_on_edge:
-                    v_type = traci.vehicle.getTypeID(v_id)
-                    v_speed = traci.vehicle.getSpeed(v_id)
+                    try:
+                        v_type = traci.vehicle.getTypeID(v_id)
+                        v_speed = traci.vehicle.getSpeed(v_id)
+                    except traci.TraCIException:
+                        # If individual vehicle read fails, skip it but warn
+                        print(f"[WARNING] Could not read vehicle {v_id} on edge {edge_id}")
+                        continue
                     if v_type == "AV":
                         av_count += 1
                         av_speeds.append(v_speed)
@@ -86,29 +91,37 @@ def get_state(vehicle_id, destination_pos):
                         hv_count += 1
                         hv_speeds.append(v_speed)
             except traci.TraCIException:
-                pass
+                print(f"[WARNING] Could not get vehicles for edge {edge_id}")
 
         avg_av_speed = np.mean(av_speeds) if av_speeds else 0.0
         avg_hv_speed = np.mean(hv_speeds) if hv_speeds else 0.0
+        print(f"[DEBUG] {road_key} stats: AVs={av_count}, HVs={hv_count}, AV_avg={avg_av_speed:.2f}, HV_avg={avg_hv_speed:.2f}")
         traffic_features.extend([av_count, hv_count, avg_av_speed, avg_hv_speed])
 
     try:
         current_pos = traci.vehicle.getPosition(vehicle_id)
         positional_features = [current_pos[0], current_pos[1], destination_pos[0], destination_pos[1]]
+        print(f"[DEBUG] current_pos={current_pos}, destination_pos={destination_pos}")
     except traci.TraCIException:
         print("[ERROR] Failed to get position.")
         return None
 
     state_vector = np.array(traffic_features + positional_features, dtype=np.float32)
+    print(f"[DEBUG] Raw state vector: {state_vector}")
 
     # Normalization
-    state_vector[0:16:4] /= 50.0
-    state_vector[1:16:4] /= 50.0
-    state_vector[2:16:4] /= 15.0
-    state_vector[3:16:4] /= 15.0
-    state_vector[16:] /= 200.0
+    try:
+        state_vector[0:16:4] /= 50.0
+        state_vector[1:16:4] /= 50.0
+        state_vector[2:16:4] /= 15.0
+        state_vector[3:16:4] /= 15.0
+        state_vector[16:] /= 200.0
+    except Exception as e:
+        print(f"[ERROR] Normalization failed: {e}")
+        return None
 
-    print(f"[DEBUG] State vector ready for {vehicle_id}")
+    print(f"[DEBUG] Normalized state vector for {vehicle_id}: {state_vector}")
+    print(f"[DEBUG] Exit get_state() for {vehicle_id}")
     return state_vector
 
 
@@ -116,6 +129,7 @@ def get_state(vehicle_id, destination_pos):
 #  REWARD FUNCTION
 # =====================================================================
 def get_reward(vehicle_id, initial_dist_to_dest, destination_pos):
+    print(f"\n[DEBUG] Enter get_reward() for vehicle: {vehicle_id}")
     omega = 0.6
     try:
         current_speed = traci.vehicle.getSpeed(vehicle_id)
@@ -127,8 +141,14 @@ def get_reward(vehicle_id, initial_dist_to_dest, destination_pos):
         dd_n = current_dist_to_dest / initial_dist_to_dest if initial_dist_to_dest > 0 else 0.0
 
         reward = (omega * ds_n) - ((1 - omega) * dd_n)
+        print(f"[DEBUG] speed={current_speed:.2f}, max_speed={max_speed:.2f}, ds_n={ds_n:.3f}, dd_n={dd_n:.3f}, reward={reward:.3f}")
+        print(f"[DEBUG] Exit get_reward() for {vehicle_id}")
         return reward
     except traci.TraCIException:
+        print(f"[ERROR] TraCIException in get_reward() for {vehicle_id}")
+        return 0.0
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in get_reward(): {e}")
         return 0.0
 
 
@@ -136,7 +156,7 @@ def get_reward(vehicle_id, initial_dist_to_dest, destination_pos):
 #  ACTION EXECUTION
 # =====================================================================
 def execute_action(vehicle_id, action):
-    """Executes (0: right, 1: straight, 2: left)."""
+    print(f"\n[DEBUG] Enter execute_action() for {vehicle_id}, action={action}")
     action_to_direction = {0: 'r', 1: 's', 2: 'l'}
     chosen_direction = action_to_direction.get(action)
     if chosen_direction is None:
@@ -146,15 +166,21 @@ def execute_action(vehicle_id, action):
     try:
         current_lane = traci.vehicle.getLaneID(vehicle_id)
         links = traci.lane.getLinks(current_lane)
+        print(f"[DEBUG] Found {len(links)} links from {current_lane}")
         for link in links:
             to_lane, direction = link[0], link[6]
+            print(f"[DEBUG] Checking link to_lane={to_lane}, direction={direction}")
             if direction == chosen_direction:
                 target_edge = to_lane.split('_')[0]
                 traci.vehicle.changeTarget(vehicle_id, target_edge)
                 print(f"[INFO] Vehicle {vehicle_id} → {chosen_direction.upper()} to {target_edge}")
+                print(f"[DEBUG] Exit execute_action() for {vehicle_id}")
                 return
-    except traci.TraCIException:
-        print(f"[ERROR] Failed to execute action for {vehicle_id}")
+        print(f"[WARNING] No link found for desired direction {chosen_direction} from lane {current_lane}")
+    except traci.TraCIException as e:
+        print(f"[ERROR] Failed to execute action for {vehicle_id}: {e}")
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in execute_action(): {e}")
 
 
 # =====================================================================
@@ -163,8 +189,13 @@ def execute_action(vehicle_id, action):
 def initialize_lane_map():
     global all_lane_ids, edge_to_lanes_map
     print("\n[INFO] ======== INITIALIZING LANE MAP ========")
+    try:
+        all_lane_ids = traci.lane.getIDList()
+        print(f"[DEBUG] Retrieved {len(all_lane_ids)} lanes from SUMO")
+    except traci.TraCIException as e:
+        print(f"[ERROR] Failed to get lane ID list: {e}")
+        all_lane_ids = []
 
-    all_lane_ids = traci.lane.getIDList()
     edge_to_lanes_map.clear()
     for lane_id in all_lane_ids:
         try:
@@ -172,15 +203,20 @@ def initialize_lane_map():
             if not edge_id.startswith(':'):
                 edge_to_lanes_map[edge_id].append(lane_id)
         except traci.TraCIException:
-            pass
+            print(f"[WARNING] Could not resolve edge for lane {lane_id}")
+            continue
 
     print(f"[INFO] Lane map built with {len(edge_to_lanes_map)} edges.")
 
 
 def get_lane_from_edge(dest_edge):
+    print(f"[DEBUG] get_lane_from_edge called for edge: {dest_edge}")
     if dest_edge in edge_to_lanes_map:
         lanes = edge_to_lanes_map[dest_edge]
-        return lanes[0] if lanes else None
+        chosen = lanes[0] if lanes else None
+        print(f"[DEBUG] Returning lane {chosen} for edge {dest_edge}")
+        return chosen
+    print(f"[WARNING] Edge {dest_edge} not found in lane map")
     return None
 
 
@@ -188,87 +224,160 @@ def get_lane_from_edge(dest_edge):
 #  TRAINING LOOP
 # =====================================================================
 def train():
+    print("[INFO] Starting training")
     agent = DQNAgent(state_size=STATE_SIZE, action_size=ACTION_SIZE)
+    print(f"[DEBUG] Agent initialized with state_size={STATE_SIZE}, action_size={ACTION_SIZE}")
     scores = []
 
     for episode in range(1, NUM_EPISODES + 1):
         print(f"\n\n================== EPISODE {episode} ==================")
-
         seed = random.randint(1, 2_000_000_000)
         episode_sumo_cmd = list(SUMO_CMD) + ["--seed", str(seed), "--time-to-teleport", "600"]
-        traci.start(episode_sumo_cmd)
+        print(f"[DEBUG] Starting SUMO with seed {seed}")
+        try:
+            traci.start(episode_sumo_cmd)
+        except Exception as e:
+            print(f"[ERROR] traci.start failed: {e}")
+            break
+
         initialize_lane_map()
 
-        step, episode_reward = 0, 0
+        step, episode_reward = 0, 0.0
         vehicle_dests, vehicle_initial_dists = {}, {}
         last_decision_data = defaultdict(lambda: None)
         vehicle_episode_rewards = defaultdict(float)
 
-        while step < MAX_STEPS_PER_EPISODE:
-            traci.simulationStep()
-            step += 1
+        try:
+            while step < MAX_STEPS_PER_EPISODE:
+                traci.simulationStep()
+                step += 1
 
-            # Handle newly departed vehicles
-            for v_id in traci.simulation.getDepartedIDList():
+                if step % 100 == 0:
+                    print(f"[DEBUG] Episode {episode} step {step}")
+
+                # Handle newly departed vehicles
                 try:
-                    if traci.vehicle.getTypeID(v_id) == "AV":
-                        dest_edge = traci.vehicle.getRoute(v_id)[-1]
-                        lane_id = get_lane_from_edge(dest_edge)
-                        if lane_id is None:
-                            continue
-                        dest_pos = traci.lane.getShape(lane_id)[-1]
-                        vehicle_dests[v_id] = dest_pos
-                        pos = traci.vehicle.getPosition(v_id)
-                        vehicle_initial_dists[v_id] = np.linalg.norm(np.array(pos) - np.array(dest_pos))
-                except (traci.TraCIException, IndexError):
-                    continue
+                    departed = traci.simulation.getDepartedIDList()
+                except traci.TraCIException:
+                    departed = []
+                if departed:
+                    print(f"[DEBUG] Departed vehicles at step {step}: {departed}")
 
-            active_vehicle_ids = [v for v in traci.vehicle.getIDList() if v in vehicle_dests]
-
-            for v_id in active_vehicle_ids:
-                try:
-                    current_lane = traci.vehicle.getLaneID(v_id)
-                    if current_lane.startswith(':'):
+                for v_id in departed:
+                    try:
+                        if traci.vehicle.getTypeID(v_id) == "AV":
+                            route = traci.vehicle.getRoute(v_id)
+                            if not route:
+                                print(f"[WARNING] Vehicle {v_id} has empty route")
+                                continue
+                            dest_edge = route[-1]
+                            lane_id = get_lane_from_edge(dest_edge)
+                            if lane_id is None:
+                                print(f"[WARNING] No lane found for dest edge {dest_edge} for vehicle {v_id}")
+                                continue
+                            dest_pos = traci.lane.getShape(lane_id)[-1]
+                            vehicle_dests[v_id] = dest_pos
+                            pos = traci.vehicle.getPosition(v_id)
+                            vehicle_initial_dists[v_id] = np.linalg.norm(np.array(pos) - np.array(dest_pos))
+                            print(f"[INFO] AV {v_id} departed: dest_edge={dest_edge}, lane_id={lane_id}, dest_pos={dest_pos}, initial_dist={vehicle_initial_dists[v_id]:.2f}")
+                    except (traci.TraCIException, IndexError) as e:
+                        print(f"[WARNING] Error handling departed vehicle {v_id}: {e}")
                         continue
 
-                    lane_length = traci.lane.getLength(current_lane)
-                    pos_on_lane = traci.vehicle.getLanePosition(v_id)
-                    if lane_length - pos_on_lane <= DECISION_ZONE_LENGTH:
-                        current_state = get_state(v_id, vehicle_dests[v_id])
-                        if current_state is None:
+                # Active AVs with known destinations
+                try:
+                    all_vehicle_ids = traci.vehicle.getIDList()
+                except traci.TraCIException:
+                    all_vehicle_ids = []
+                active_vehicle_ids = [v for v in all_vehicle_ids if v in vehicle_dests]
+                if active_vehicle_ids:
+                    print(f"[DEBUG] Active AVs at step {step}: {active_vehicle_ids}")
+
+                for v_id in active_vehicle_ids:
+                    try:
+                        current_lane = traci.vehicle.getLaneID(v_id)
+                        if current_lane.startswith(':'):
+                            print(f"[DEBUG] Skipping vehicle {v_id} on internal lane {current_lane}")
                             continue
 
-                        reward = get_reward(v_id, vehicle_initial_dists[v_id], vehicle_dests[v_id])
-                        vehicle_episode_rewards[v_id] += reward
+                        lane_length = traci.lane.getLength(current_lane)
+                        pos_on_lane = traci.vehicle.getLanePosition(v_id)
+                        distance_to_end = lane_length - pos_on_lane
+                        # Check decision zone
+                        if distance_to_end <= DECISION_ZONE_LENGTH:
+                            print(f"[DEBUG] Vehicle {v_id} within decision zone (dist_to_end={distance_to_end:.2f})")
+                            current_state = get_state(v_id, vehicle_dests[v_id])
+                            if current_state is None:
+                                print(f"[WARNING] state for {v_id} is None, skipping decision")
+                                continue
 
-                        if last_decision_data[v_id] is not None:
-                            prev_state, prev_action = last_decision_data[v_id]
-                            agent.step(prev_state, prev_action, reward, current_state, False)
+                            reward = get_reward(v_id, vehicle_initial_dists[v_id], vehicle_dests[v_id])
+                            vehicle_episode_rewards[v_id] += reward
+                            print(f"[DEBUG] Computed reward for {v_id}: {reward:.3f}, cumulative for vehicle: {vehicle_episode_rewards[v_id]:.3f}")
 
-                        action = agent.act(current_state, eps=agent.epsilon)
-                        execute_action(v_id, action)
-                        last_decision_data[v_id] = (current_state, action)
+                            if last_decision_data[v_id] is not None:
+                                prev_state, prev_action = last_decision_data[v_id]
+                                print(f"[DEBUG] Agent learning step for {v_id}: prev_action={prev_action}")
+                                agent.step(prev_state, prev_action, reward, current_state, False)
+
+                            action = agent.act(current_state, eps=agent.epsilon)
+                            print(f"[INFO] Agent chose action {action} (epsilon={agent.epsilon:.3f}) for vehicle {v_id}")
+                            execute_action(v_id, action)
+                            last_decision_data[v_id] = (current_state, action)
+                        else:
+                            # Not in decision zone
+                            pass
+                    except traci.TraCIException as e:
+                        print(f"[WARNING] TraCI error while processing vehicle {v_id}: {e}")
+                        continue
+
+                # Handle arrivals
+                try:
+                    arrived = traci.simulation.getArrivedIDList()
                 except traci.TraCIException:
-                    continue
+                    arrived = []
+                if arrived:
+                    print(f"[DEBUG] Arrived vehicles at step {step}: {arrived}")
 
-            # Handle arrivals
-            for v_id in traci.simulation.getArrivedIDList():
-                if v_id in last_decision_data:
-                    prev_state, prev_action = last_decision_data[v_id]
-                    final_reward = 10.0
-                    vehicle_episode_rewards[v_id] += final_reward
-                    agent.step(prev_state, prev_action, final_reward, prev_state, True)
-                    del last_decision_data[v_id]
+                for v_id in arrived:
+                    if v_id in last_decision_data:
+                        prev_state, prev_action = last_decision_data[v_id]
+                        final_reward = 10.0
+                        vehicle_episode_rewards[v_id] += final_reward
+                        print(f"[INFO] Vehicle {v_id} arrived: awarding final reward {final_reward:.2f}, cumulative: {vehicle_episode_rewards[v_id]:.2f}")
+                        # Use terminal=True here
+                        agent.step(prev_state, prev_action, final_reward, prev_state, True)
+                        del last_decision_data[v_id]
 
-                vehicle_dests.pop(v_id, None)
-                vehicle_initial_dists.pop(v_id, None)
+                    vehicle_dests.pop(v_id, None)
+                    vehicle_initial_dists.pop(v_id, None)
 
-            if traci.simulation.getMinExpectedNumber() == 0:
-                print(f"[INFO] All vehicles arrived — ending early at step {step}")
-                break
+                # Check if simulation has no expected vehicles
+                try:
+                    min_expected = traci.simulation.getMinExpectedNumber()
+                except traci.TraCIException:
+                    min_expected = None
 
-        agent.update_epsilon(episode)
-        traci.close()
+                if min_expected == 0:
+                    print(f"[INFO] All vehicles arrived — ending episode early at step {step}")
+                    break
+
+            # End of episode loop
+        except Exception as e:
+            print(f"[ERROR] Unexpected error during episode {episode}: {e}")
+        finally:
+            # Update epsilon and close traci safely
+            try:
+                agent.update_epsilon(episode)
+                print(f"[DEBUG] Agent epsilon updated to {agent.epsilon:.3f}")
+            except Exception as e:
+                print(f"[WARNING] Failed to update epsilon: {e}")
+
+            try:
+                traci.close()
+                print(f"[INFO] traci closed for episode {episode}")
+            except Exception as e:
+                print(f"[WARNING] traci.close() failed or was already closed: {e}")
 
         episode_reward = sum(vehicle_episode_rewards.values())
         scores.append(episode_reward)
@@ -278,8 +387,11 @@ def train():
         print(f"[RESULT] Epsilon: {agent.epsilon:.3f}")
         print("=" * 70)
 
+    print("[INFO] Training finished")
     return scores
 
 
 if __name__ == "__main__":
-    train()
+    print("[INFO] Launching training script")
+    scores = train()
+    print(f"[INFO] Training produced {len(scores)} episode scores")
