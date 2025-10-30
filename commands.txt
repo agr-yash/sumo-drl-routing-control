@@ -1,0 +1,15 @@
+For generating  .net.xml
+netgenerate --grid --grid.number=3 --grid.length=200 --default.speed=15 -o city2.net.xml --tls.guess
+
+For generating .rou.xml
+python3 $SUMO_HOME/tools/randomTrips.py -n city2.net.xml -r city2.rou.xml --period 1 --fringe-factor 10 -e 1000 --allow-fringe
+
+Then run process_routes.py.
+
+Then adding vtypes in .rou.xml:
+<vType id="AV" vClass="passenger" maxSpeed="15" carFollowModel="IDM" accel="5.0" decel="5.0" />
+  <vType id="HV" vClass="passenger" maxSpeed="15" carFollowModel="IDM" accel="5.0" decel="5.0">
+    <param key="tau" value="1.5" />
+    <param key="politeness" value="0" />
+</vType>
+

@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
     <input>
-        <net-file value="city.net.xml"/>
-        <route-files value="traffic.rou.xml"/>
+        <net-file value="city2.net.xml"/>
+        <route-files value="city2.mixed.rou.xml"/>
         </input>
     <time>
         <begin value="0"/>
         <step-length value="1"/>
+        <end value="1800"/>
     </time>
     <report>
         <verbose value="true"/>

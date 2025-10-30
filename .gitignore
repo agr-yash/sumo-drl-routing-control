@@ -12,7 +12,8 @@ __pycache__/
 # SUMO generated files
 # These are results of scripts or the simulation itself. They can be
 # regenerated and should not be tracked in version control.
-traffic.rou.xml
+*.net.xml
+*.rou.xml
 tripinfo.xml
 trips.trips.xml
 *.summary.xml
@@ -25,6 +26,6 @@ trips.trips.xml
 .idea/
 *.sublime-project
 *.sublime-workspace
-
+*.sumocfg
 # macOS specific files
 .DS_Store

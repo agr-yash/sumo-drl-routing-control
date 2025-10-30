@@ -9,8 +9,21 @@ class DQN(nn.Module):
         self.layer1 = nn.Linear(state_size, 150)
         self.layer2 = nn.Linear(150, 100)
         self.layer3 = nn.Linear(100, action_size)
-    
+
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"[INIT] DQN model initialized.")
+        print(f"[MODEL INFO] Input size: {state_size}, Output size: {action_size}, Total parameters: {total_params}")
+
     def forward(self, state):
+        if not isinstance(state, torch.Tensor):
+            print(f"[WARN] Expected torch.Tensor, got {type(state)}. Converting to tensor.")
+            state = torch.tensor(state, dtype=torch.float32)
+
+
         x = F.relu(self.layer1(state))
+
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+
+        output = self.layer3(x)
+
+        return output
