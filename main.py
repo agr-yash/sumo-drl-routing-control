@@ -1,31 +1,90 @@
 import os
 import sys
 import random
-import time
 from collections import defaultdict
 import numpy as np
 import traci
 from dqn_agent import DQNAgent
+
+import xml.etree.ElementTree as ET
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 # === SUMO CONFIGURATION ===
 HOMEBREW_SUMO_ROOT = "/opt/homebrew/opt/sumo"
 SUMO_TOOLS_PATH = os.path.join(HOMEBREW_SUMO_ROOT, "share", "sumo", "tools")
 sys.path.append(SUMO_TOOLS_PATH)
 
-SUMO_BINARY = os.path.join(HOMEBREW_SUMO_ROOT, "bin", "sumo")
+SUMO_BINARY = os.path.join(HOMEBREW_SUMO_ROOT, "bin", "sumo-gui")
 SUMO_CFG = "simulation.sumocfg"
 SUMO_CMD = [SUMO_BINARY, "-c", SUMO_CFG, "--tripinfo-output", "tripinfo.xml"]
 
 # === TRAINING PARAMETERS ===
 STATE_SIZE = 20
 ACTION_SIZE = 3  # Right, Straight, Left
-NUM_EPISODES = 500
-MAX_STEPS_PER_EPISODE = 2000
+NUM_EPISODES = 20
+MAX_STEPS_PER_EPISODE = 50
 DECISION_ZONE_LENGTH = 50
 
-# === GLOBAL LANE MAP ===
 all_lane_ids = []
 edge_to_lanes_map = defaultdict(list)
+
+def parse_tripinfo_xml(file_path="tripinfo.xml"):
+    """
+    Parses SUMO tripinfo.xml and returns aggregated metrics for AVs and HVs.
+    """
+    try:
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+    except Exception as e:
+        print(f"[ERROR] Failed to parse {file_path}: {e}")
+        return None
+
+    hv_data, av_data = {"duration": [], "routeLength": [], "waitingTime": [], "timeLoss": [], "rerouteNo": []}, \
+                       {"duration": [], "routeLength": [], "waitingTime": [], "timeLoss": [], "rerouteNo": []}
+
+    for trip in root.findall("tripinfo"):
+        vtype = trip.get("vType", "HV")
+        data = av_data if vtype == "AV" else hv_data
+        try:
+            data["duration"].append(float(trip.get("duration", 0)))
+            data["routeLength"].append(float(trip.get("routeLength", 0)))
+            data["waitingTime"].append(float(trip.get("waitingTime", 0)))
+            data["timeLoss"].append(float(trip.get("timeLoss", 0)))
+            data["rerouteNo"].append(float(trip.get("rerouteNo", 0)))
+        except Exception:
+            continue
+
+    def avg(lst): return np.mean(lst) if lst else 0.0
+    def count(lst): return len(lst)
+
+    metrics = {
+        "num_HV": count(hv_data["duration"]),
+        "num_AV": count(av_data["duration"]),
+        "avg_dur_HV": avg(hv_data["duration"]),
+        "avg_dur_AV": avg(av_data["duration"]),
+        "avg_wait_HV": avg(hv_data["waitingTime"]),
+        "avg_wait_AV": avg(av_data["waitingTime"]),
+        "avg_loss_HV": avg(hv_data["timeLoss"]),
+        "avg_loss_AV": avg(av_data["timeLoss"]),
+        "avg_len_HV": avg(hv_data["routeLength"]),
+        "avg_len_AV": avg(av_data["routeLength"]),
+        "avg_reroute_AV": avg(av_data["rerouteNo"]),
+    }
+    return metrics
+
+csv_path = "training_metrics2.csv"
+if not os.path.exists(csv_path):
+    pd.DataFrame(columns=[
+        "episode", "episode_reward", "epsilon",
+        "num_AV", "num_HV",
+        "avg_dur_AV", "avg_dur_HV",
+        "avg_wait_AV", "avg_wait_HV",
+        "avg_loss_AV", "avg_loss_HV",
+        "avg_len_AV", "avg_len_HV",
+        "avg_reroute_AV"
+    ]).to_csv(csv_path, index=False)
 
 
 # =====================================================================
@@ -227,9 +286,23 @@ def train():
     print("[INFO] Starting training")
     agent = DQNAgent(state_size=STATE_SIZE, action_size=ACTION_SIZE)
     print(f"[DEBUG] Agent initialized with state_size={STATE_SIZE}, action_size={ACTION_SIZE}")
+    checkpoint_dir = "checkpoints/dqn"
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    latest_checkpoint = None
+    if os.path.exists(checkpoint_dir):
+        ckpts = [f for f in os.listdir(checkpoint_dir) if f.startswith("checkpoint_ep") and f.endswith(".pth")]
+        if ckpts:
+            ckpts.sort(key=lambda x: int(x.replace("checkpoint_ep", "").replace(".pth", "")))
+            latest_checkpoint = os.path.join(checkpoint_dir, ckpts[-1])
+
+    start_episode = 1
+    if latest_checkpoint:
+        if agent.load(latest_checkpoint):
+            start_episode = int(latest_checkpoint.split("checkpoint_ep")[-1].split(".pth")[0]) + 1
+            print(f"[INFO] Resuming from episode {start_episode}")
     scores = []
 
-    for episode in range(1, NUM_EPISODES + 1):
+    for episode in range(start_episode, NUM_EPISODES + 1):
         print(f"\n\n================== EPISODE {episode} ==================")
         seed = random.randint(1, 2_000_000_000)
         episode_sumo_cmd = list(SUMO_CMD) + ["--seed", str(seed), "--time-to-teleport", "600"]
@@ -381,13 +454,95 @@ def train():
 
         episode_reward = sum(vehicle_episode_rewards.values())
         scores.append(episode_reward)
+        # === Parse tripinfo and log metrics ===
+        episode_metrics = parse_tripinfo_xml("tripinfo.xml")
+        if episode_metrics:
+            episode_metrics["episode"] = episode
+            episode_metrics["episode_reward"] = episode_reward
+            episode_metrics["epsilon"] = agent.epsilon
+
+            df = pd.read_csv(csv_path)
+            df = pd.concat([df, pd.DataFrame([episode_metrics])], ignore_index=True)
+            df.to_csv(csv_path, index=False)
+            print(f"[INFO] Episode {episode} metrics written to CSV.")
+        else:
+            print(f"[WARNING] Could not parse tripinfo.xml for episode {episode}.")
 
         print(f"\n[RESULT] ✅ Episode {episode} completed")
         print(f"[RESULT] Total Reward: {episode_reward:.2f}")
         print(f"[RESULT] Epsilon: {agent.epsilon:.3f}")
         print("=" * 70)
 
+        if episode % max(1, NUM_EPISODES // 5) == 0 or episode == NUM_EPISODES:
+            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_ep{episode}.pth")
+            try:
+                agent.save(checkpoint_path)
+                print(f"[INFO] Checkpoint saved at episode {episode}")
+            except Exception as e:
+                print(f"[WARNING] Could not save checkpoint: {e}")
+
+
     print("[INFO] Training finished")
+        # === Plot training progress ===
+    print("[INFO] Generating training plots...")
+    df = pd.read_csv(csv_path)
+
+    episodes = df["episode"]
+
+    def smooth(series, window=5):
+        return series.rolling(window, min_periods=1).mean()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, smooth(df["episode_reward"]), label="Episode Reward")
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("Training Reward Progress")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig("reward_progress.png", bbox_inches="tight")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, smooth(df["avg_dur_AV"]), label="AV Duration (s)")
+    plt.plot(episodes, smooth(df["avg_dur_HV"]), label="HV Duration (s)")
+    plt.xlabel("Episode")
+    plt.ylabel("Avg Trip Duration (s)")
+    plt.title("Average Trip Duration per Episode")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("duration_progress.png", bbox_inches="tight")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, smooth(df["avg_wait_AV"]), label="AV Waiting (s)")
+    plt.plot(episodes, smooth(df["avg_wait_HV"]), label="HV Waiting (s)")
+    plt.xlabel("Episode")
+    plt.ylabel("Average Waiting Time (s)")
+    plt.title("Average Waiting Time per Episode")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("waiting_progress.png", bbox_inches="tight")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, smooth(df["avg_loss_AV"]), label="AV Time Loss (s)")
+    plt.plot(episodes, smooth(df["avg_loss_HV"]), label="HV Time Loss (s)")
+    plt.xlabel("Episode")
+    plt.ylabel("Average Time Loss (s)")
+    plt.title("Average Time Loss per Episode")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("timeloss_progress.png", bbox_inches="tight")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(episodes, smooth(df["avg_reroute_AV"]), label="AV Reroutes")
+    plt.xlabel("Episode")
+    plt.ylabel("Avg Reroute Count")
+    plt.title("Average AV Reroutes per Episode")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("reroutes_progress.png", bbox_inches="tight")
+
+    plt.show()
+    print("[INFO] Plots saved as PNG files in current directory.")
+
     return scores
 
 

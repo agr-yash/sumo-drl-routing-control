@@ -5,7 +5,7 @@ import sys
 
 def add_vehicle_types(input_file, output_file, av_mpr):
     """
-    Reads a SUMO route file, adds AV and HV vehicle types, and assigns a type
+    Reads a SUMO route file, and assigns a type
     to each vehicle based on the Market Penetration Rate (MPR).
     """
     try:
@@ -14,22 +14,6 @@ def add_vehicle_types(input_file, output_file, av_mpr):
 
         tree = ET.parse(input_file)
         root = tree.getroot()
-
-        # --- THIS IS THE CRUCIAL PART THAT WAS MISSING FROM YOUR OUTPUT ---
-        # It adds the <vType> definitions directly to the <routes> element.
-        
-        # Autonomous Vehicle (AV)
-        ET.SubElement(root, 'vType', attrib={
-            'id': 'AV', 'vClass': 'passenger', 'maxSpeed': '15',
-            'carFollowModel': 'IDM', 'accel': '5.0', 'decel': '5.0'
-        })
-
-        # Human-driven Vehicle (HV)
-        ET.SubElement(root, 'vType', attrib={
-            'id': 'HV', 'vClass': 'passenger', 'maxSpeed': '15',
-            'carFollowModel': 'IDM', 'accel': '5.0', 'decel': '5.0', 'tau': '1.5'
-        })
-        # --- END OF CRUCIAL PART ---
 
         vehicle_count = 0
         av_count = 0

@@ -11,8 +11,6 @@ class DQN(nn.Module):
         self.layer3 = nn.Linear(100, action_size)
 
         total_params = sum(p.numel() for p in self.parameters())
-        print(f"[INIT] DQN model initialized.")
-        print(f"[MODEL INFO] Input size: {state_size}, Output size: {action_size}, Total parameters: {total_params}")
 
     def forward(self, state):
         if not isinstance(state, torch.Tensor):

@@ -5,6 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from dqn import DQN
 from replay_buffer import ReplayBuffer
+import os
 
 BUFFER_SIZE = 10000
 BATCH_SIZE = 32
@@ -13,7 +14,7 @@ LR = 0.001
 TARGET_UPDATE_FREQUENCY = 100
 EPS_START = 1.0
 EPS_END = 0.01
-TOTAL_EPISODES = 250
+TOTAL_EPISODES = 100
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -106,3 +107,29 @@ class DQNAgent:
         """Hard update: copy weights directly from local to target network."""
         self.qnetwork_target.load_state_dict(self.qnetwork_local.state_dict())
 
+    def save(self, checkpoint_path):
+        """Save model, optimizer, and epsilon."""
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        torch.save({
+            "model_state_dict": self.qnetwork_local.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "epsilon": self.epsilon
+        }, checkpoint_path)
+        print(f"[INFO] Model checkpoint saved → {checkpoint_path}")
+
+    # === CHECKPOINT LOAD ===
+    def load(self, checkpoint_path):
+        """Load model, optimizer, and epsilon if checkpoint exists."""
+        if not os.path.exists(checkpoint_path):
+            print(f"[INFO] No checkpoint found at {checkpoint_path}. Starting fresh.")
+            return False
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            self.qnetwork_local.load_state_dict(checkpoint["model_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.epsilon = checkpoint.get("epsilon", self.epsilon)
+            print(f"[INFO] ✅ Checkpoint loaded from {checkpoint_path}. Resuming training.")
+            return True
+        except Exception as e:
+            print(f"[WARNING] Failed to load checkpoint: {e}")
+            return False
