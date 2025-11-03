@@ -1,10 +1,16 @@
 source final_env/bin/activate
+conda activate sumo_env
+
+screen -S train_screen
+to detach - ctrl-a -> d
+screen -ls
+screen -r "screen_name"
 
 For generating  .net.xml
-netgenerate --grid --grid.number=3 --grid.length=200 --default.speed=15 -o city2.net.xml --tls.guess
+netgenerate --grid --grid.number=4 --grid.length=200 --default.speed=15 -o city2.net.xml --tls.guess
 
 For generating .rou.xml
-python3 $SUMO_HOME/tools/randomTrips.py -n city2.net.xml -r city2.rou.xml --period 1 --fringe-factor 10 -e 1000 --allow-fringe
+python3 $SUMO_HOME/tools/randomTrips.py -n city2.net.xml -r city2.rou.xml --period 1 --fringe-factor 10 -e 500 --allow-fringe
 
 Then run process_routes.py.
 
@@ -14,4 +20,3 @@ Then adding vtypes in .rou.xml:
     <param key="tau" value="1.5" />
     <param key="politeness" value="0" />
 </vType>
-
