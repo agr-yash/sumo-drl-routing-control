@@ -49,7 +49,7 @@ class DQNAgent:
         """Store experience and possibly learn."""
 
         self.memory.add(state, action, reward, next_state, done)
-        self.t_step = (self.t_step + 1) % TARGET_UPDATE_FREQUENCY
+        self.t_step += 1 
 
         if len(self.memory) > BATCH_SIZE:
             experiences = self.memory.sample()
