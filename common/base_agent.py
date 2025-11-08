@@ -12,6 +12,8 @@ class BaseDQNAgent(ABC):
     def __init__(self, state_size, action_size, agent_config, training_config):
         self.state_size = state_size
         self.action_size = action_size
+        self.agent_config = agent_config
+        self.training_config = training_config
         self.last_loss = None
 
         self.total_episodes = training_config["num_episodes"]
