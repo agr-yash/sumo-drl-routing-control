@@ -34,8 +34,8 @@ enhanced:
   buffer_size: 10000
   batch_size: 32
   # PER hyperparameters
-  alpha: 0.6  # Priority exponent
-  beta_start: 0.4  # Initial importance sampling exponent
+  alpha: 0.6 # Priority exponent
+  beta_start: 0.4 # Initial importance sampling exponent
   beta_frames: 100000
 
 # Reward function settings
