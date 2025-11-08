@@ -1,59 +1,31 @@
-import os
-import random
-
 import numpy as np
-import torch
 import torch.nn.functional as F
 import torch.optim as optim
+
+from common.base_agent import BaseDQNAgent
 
 from .dqn import DuelingDQN
 from .replay_buffer import PrioritizedReplayBuffer
 
-BUFFER_SIZE = 10000
-BATCH_SIZE = 32
-GAMMA = 0.99
-LR = 0.001
-TARGET_UPDATE_FREQUENCY = 100
-EPS_START = 1.0
-EPS_END = 0.01
-# New PER hyperparameters
-ALPHA = 0.6  # Priority exponent
-BETA_START = 0.4  # Initial importance sampling exponent
-BETA_FRAMES = 100000  # Number of frames to anneal beta to 1.0
 
+class DQNAgent(BaseDQNAgent):
+    def __init__(self, state_size, action_size, agent_config, training_config):
+        super().__init__(state_size, action_size, agent_config, training_config)
 
-class DQNAgent:
-    def __init__(self, state_size, action_size, total_episodes):
-        self.total_episodes = total_episodes
-        self.epsilon = EPS_START
-        self.eps_start = EPS_START
-        self.eps_end = EPS_END
-
-        self.state_size = state_size
-        self.action_size = action_size
-        self.last_loss = None  # Track last loss
-
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda:0")
-        else:
-            self.device = torch.device("cpu")
-
-        # Use DuelingDQN
         self.qnetwork_local = DuelingDQN(state_size, action_size).to(self.device)
         self.qnetwork_target = DuelingDQN(state_size, action_size).to(self.device)
-
-        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
-
-        # Use PrioritizedReplayBuffer
-        self.memory = PrioritizedReplayBuffer(
-            BUFFER_SIZE,
-            BATCH_SIZE,
-            self.device,
-            alpha=ALPHA,
-            beta_start=BETA_START,
-            beta_frames=BETA_FRAMES,
+        self.optimizer = optim.Adam(
+            self.qnetwork_local.parameters(), lr=agent_config["lr"]
         )
 
+        self.memory = PrioritizedReplayBuffer(
+            buffer_size=agent_config["buffer_size"],
+            batch_size=agent_config["batch_size"],
+            device=self.device,
+            alpha=agent_config["alpha"],
+            beta_start=agent_config["beta_start"],
+            beta_frames=agent_config["beta_frames"],
+        )
         self.t_step = 0
 
     def step(self, state, action, reward, next_state, done):
@@ -61,33 +33,13 @@ class DQNAgent:
         self.memory.add(state, action, reward, next_state, done)
         self.t_step += 1
 
-        if len(self.memory) > BATCH_SIZE:
-            # Sample from PER buffer
+        if len(self.memory) > self.memory.batch_size:
             experiences = self.memory.sample()
             if experiences:
-                self.learn(experiences, GAMMA)
+                self.learn(experiences, self.agent_config["gamma"])
 
-        if self.t_step % TARGET_UPDATE_FREQUENCY == 0:
+        if self.t_step % self.agent_config["target_update_frequency"] == 0:
             self.update_target_network()
-
-    def act(self, state, eps=None):
-        """Choose action using epsilon-greedy policy."""
-        if eps is None:
-            eps = self.epsilon
-
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        self.qnetwork_local.eval()
-        with torch.no_grad():
-            action_values = self.qnetwork_local(state)
-        self.qnetwork_local.train()
-
-        greedy_action = np.argmax(action_values.cpu().data.numpy())
-        random_action = random.choice(np.arange(self.action_size))
-
-        if random.random() > eps:
-            return greedy_action
-        else:
-            return random_action
 
     def learn(self, experiences, gamma):
         """Update network weights using Double DQN and PER."""
@@ -122,39 +74,3 @@ class DQNAgent:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
-    def update_epsilon(self, current_episode):
-        decay_rate = (self.eps_start - self.eps_end) / self.total_episodes
-        self.epsilon = max(self.eps_end, self.eps_start - decay_rate * current_episode)
-
-    def update_target_network(self):
-        """Hard update: copy weights directly from local to target network."""
-        self.qnetwork_target.load_state_dict(self.qnetwork_local.state_dict())
-
-    def save(self, checkpoint_path):
-        """Save model, optimizer, and epsilon."""
-        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        torch.save(
-            {
-                "model_state_dict": self.qnetwork_local.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-                "epsilon": self.epsilon,
-            },
-            checkpoint_path,
-        )
-
-    def load(self, checkpoint_path):
-        """Load model, optimizer, and epsilon if checkpoint exists."""
-        if not os.path.exists(checkpoint_path):
-            return False
-        try:
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
-            self.qnetwork_local.load_state_dict(checkpoint["model_state_dict"])
-            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            self.epsilon = checkpoint.get("epsilon", self.epsilon)
-            print(
-                f"[INFO] ✅ Checkpoint loaded from {checkpoint_path}. Resuming training."
-            )
-            return True
-        except Exception as e:
-            return False

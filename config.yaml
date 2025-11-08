@@ -1,0 +1,50 @@
+# config.yaml
+
+# Simulation settings
+sumo:
+  cfg_file: "simulation.sumocfg"
+  tripinfo_output: "tripinfo.xml"
+  max_steps: 5000
+  decision_zone_length: 50
+  time_to_teleport: 600
+
+# Training settings
+training:
+  num_episodes: 500
+  state_size: 20
+  action_size: 3
+
+# Agent settings
+agent:
+  gamma: 0.99
+  target_update_frequency: 100
+  # Epsilon-greedy settings
+  eps_start: 1.0
+  eps_end: 0.01
+
+# Vanilla DQN settings
+vanilla:
+  lr: 0.001
+  buffer_size: 10000
+  batch_size: 32
+
+# Enhanced (Dueling DDQN with PER) settings
+enhanced:
+  lr: 0.001
+  buffer_size: 10000
+  batch_size: 32
+  # PER hyperparameters
+  alpha: 0.6  # Priority exponent
+  beta_start: 0.4  # Initial importance sampling exponent
+  beta_frames: 100000
+
+# Reward function settings
+reward:
+  omega: 0.6
+  final_reward: 10.0
+
+# Normalization constants
+normalization:
+  vehicle_count: 50.0
+  max_speed: 15.0
+  grid_size: 200.0
