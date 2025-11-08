@@ -2,7 +2,7 @@
 
 # Simulation settings
 sumo:
-  cfg_file: "simulation.sumocfg"
+  cfg_file: "common/simulation.sumocfg"
   tripinfo_output: "tripinfo.xml"
   max_steps: 5000
   decision_zone_length: 50
