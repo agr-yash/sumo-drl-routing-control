@@ -14,12 +14,11 @@ LR = 0.001
 TARGET_UPDATE_FREQUENCY = 100
 EPS_START = 1.0
 EPS_END = 0.01
-TOTAL_EPISODES = 500
 
 
 class DQNAgent:
-    def __init__(self, state_size, action_size):
-        self.total_episodes = TOTAL_EPISODES
+    def __init__(self, state_size, action_size, total_episodes):
+        self.total_episodes = total_episodes
         self.epsilon = EPS_START
         self.eps_start = EPS_START
         self.eps_end = EPS_END
@@ -40,7 +39,7 @@ class DQNAgent:
 
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
-        self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
+        self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, self.device)
 
         self.t_step = 0
 
@@ -49,7 +48,7 @@ class DQNAgent:
         """Store experience and possibly learn."""
 
         self.memory.add(state, action, reward, next_state, done)
-        self.t_step += 1 
+        self.t_step += 1
 
         if len(self.memory) > BATCH_SIZE:
             experiences = self.memory.sample()

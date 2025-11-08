@@ -173,10 +173,12 @@ def get_state(vehicle_id, destination_pos):
     state_vector = np.array(traffic_features + positional_features, dtype=np.float32)
 
     try:
-        state_vector[0:16:4] /= 50.0
-        state_vector[1:16:4] /= 50.0
-        state_vector[2:16:4] /= 15.0
-        state_vector[3:16:4] /= 15.0
+        # Normalize traffic features
+        state_vector[0:16:4] /= 50.0  # AV counts
+        state_vector[1:16:4] /= 50.0  # HV counts
+        state_vector[2:16:4] /= 15.0  # AV avg speeds
+        state_vector[3:16:4] /= 15.0  # HV avg speeds
+        # Normalize positional features
         state_vector[16:] /= 200.0
     except Exception:
         return None
@@ -254,7 +256,9 @@ def get_lane_from_edge(dest_edge):
 
 
 def train():
-    agent = DQNAgent(state_size=STATE_SIZE, action_size=ACTION_SIZE)
+    agent = DQNAgent(
+        state_size=STATE_SIZE, action_size=ACTION_SIZE, total_episodes=NUM_EPISODES
+    )
     checkpoint_dir = "checkpoints/dqn"
     os.makedirs(checkpoint_dir, exist_ok=True)
     latest_checkpoint = None
@@ -288,7 +292,8 @@ def train():
         ]
         try:
             traci.start(episode_sumo_cmd)
-        except Exception:
+        except Exception as e:
+            print(f"Error starting SUMO: {e}", file=sys.stderr)
             break
 
         initialize_lane_map()
@@ -401,18 +406,18 @@ def train():
                 if min_expected == 0:
                     break
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"An error occurred during simulation: {e}", file=sys.stderr)
         finally:
             try:
                 agent.update_epsilon(episode)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error updating epsilon: {e}", file=sys.stderr)
 
             try:
                 traci.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error closing TRACI: {e}", file=sys.stderr)
 
         episode_reward = sum(vehicle_episode_rewards.values())
         scores.append(episode_reward)
@@ -488,8 +493,6 @@ def train():
     plt.legend()
     plt.grid(True)
     plt.savefig("reroutes_progress.png", bbox_inches="tight")
-
-    plt.show()
 
     return scores
 

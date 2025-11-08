@@ -3,7 +3,7 @@
     <input>
         <net-file value="city2.net.xml"/>
         <route-files value="city2.mixed.rou.xml"/>
-        </input>
+    </input>
     <time>
         <begin value="0"/>
         <step-length value="1"/>

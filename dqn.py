@@ -11,10 +11,6 @@ class DQN(nn.Module):
         self.layer3 = nn.Linear(100, action_size)
 
     def forward(self, state):
-        if not isinstance(state, torch.Tensor):
-            # print(f"[WARN] Expected torch.Tensor, got {type(state)}. Converting to tensor.")
-            state = torch.tensor(state, dtype=torch.float32)
-
         x = F.relu(self.layer1(state))
 
         x = F.relu(self.layer2(x))
