@@ -1,11 +1,13 @@
+import os
+import random
+
 import numpy as np
 import torch
-import random
-import torch.optim as optim
 import torch.nn.functional as F
-from dqn import DQN
-from replay_buffer import ReplayBuffer
-import os
+import torch.optim as optim
+
+from .dqn import DuelingDQN
+from .replay_buffer import PrioritizedReplayBuffer
 
 BUFFER_SIZE = 10000
 BATCH_SIZE = 32
@@ -14,6 +16,10 @@ LR = 0.001
 TARGET_UPDATE_FREQUENCY = 100
 EPS_START = 1.0
 EPS_END = 0.01
+# New PER hyperparameters
+ALPHA = 0.6  # Priority exponent
+BETA_START = 0.4  # Initial importance sampling exponent
+BETA_FRAMES = 100000  # Number of frames to anneal beta to 1.0
 
 
 class DQNAgent:
@@ -29,35 +35,41 @@ class DQNAgent:
 
         if torch.cuda.is_available():
             self.device = torch.device("cuda:0")
-            # print("[INFO] Using CUDA for GPU acceleration.")
         else:
             self.device = torch.device("cpu")
-            # print("[WARNING] CUDA not available — using CPU.")
 
-        self.qnetwork_local = DQN(state_size, action_size).to(self.device)
-        self.qnetwork_target = DQN(state_size, action_size).to(self.device)
+        # Use DuelingDQN
+        self.qnetwork_local = DuelingDQN(state_size, action_size).to(self.device)
+        self.qnetwork_target = DuelingDQN(state_size, action_size).to(self.device)
 
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
-        self.memory = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, self.device)
+        # Use PrioritizedReplayBuffer
+        self.memory = PrioritizedReplayBuffer(
+            BUFFER_SIZE,
+            BATCH_SIZE,
+            self.device,
+            alpha=ALPHA,
+            beta_start=BETA_START,
+            beta_frames=BETA_FRAMES,
+        )
 
         self.t_step = 0
 
-    # ---------------------------------------------------------------------
     def step(self, state, action, reward, next_state, done):
         """Store experience and possibly learn."""
-
         self.memory.add(state, action, reward, next_state, done)
         self.t_step += 1
 
         if len(self.memory) > BATCH_SIZE:
+            # Sample from PER buffer
             experiences = self.memory.sample()
-            self.learn(experiences, GAMMA)
+            if experiences:
+                self.learn(experiences, GAMMA)
 
         if self.t_step % TARGET_UPDATE_FREQUENCY == 0:
             self.update_target_network()
 
-    # ---------------------------------------------------------------------
     def act(self, state, eps=None):
         """Choose action using epsilon-greedy policy."""
         if eps is None:
@@ -77,21 +89,33 @@ class DQNAgent:
         else:
             return random_action
 
-    # ---------------------------------------------------------------------
     def learn(self, experiences, gamma):
-        """Update network weights."""
+        """Update network weights using Double DQN and PER."""
+        states, actions, rewards, next_states, dones, is_weights, indices = experiences
 
-        states, actions, rewards, next_states, dones = experiences
+        # --- Double DQN ---
+        # 1. Get best action from local network for next_states
+        with torch.no_grad():
+            best_actions = self.qnetwork_local(next_states).argmax(1).unsqueeze(1)
+        # 2. Get Q-values for those actions from target network
+        Q_targets_next = self.qnetwork_target(next_states).gather(1, best_actions)
+        # --- End Double DQN ---
 
-        # Compute Q targets for next states
-        Q_targets_next = (
-            self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
-        )
+        # Compute Q targets for current states
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+
+        # Get expected Q values from local model
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
-        # Compute loss
-        loss = F.mse_loss(Q_expected, Q_targets)
+        # --- PER ---
+        # Compute TD errors for priority updates
+        errors = (Q_expected - Q_targets).abs().detach().cpu().numpy()
+        self.memory.update_priorities(indices, errors.flatten())
+
+        # Compute loss with importance sampling weights
+        loss = (is_weights * F.mse_loss(Q_expected, Q_targets, reduction="none")).mean()
+        # --- End PER ---
+
         self.last_loss = loss.item()
 
         # Optimize model
@@ -118,13 +142,10 @@ class DQNAgent:
             },
             checkpoint_path,
         )
-        # print(f"[INFO] Model checkpoint saved → {checkpoint_path}")
 
-    # === CHECKPOINT LOAD ===
     def load(self, checkpoint_path):
         """Load model, optimizer, and epsilon if checkpoint exists."""
         if not os.path.exists(checkpoint_path):
-            # print(f"[INFO] No checkpoint found at {checkpoint_path}. Starting fresh.")
             return False
         try:
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -136,5 +157,4 @@ class DQNAgent:
             )
             return True
         except Exception as e:
-            # print(f"[WARNING] Failed to load checkpoint: {e}")
             return False

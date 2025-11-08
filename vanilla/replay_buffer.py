@@ -1,7 +1,8 @@
 import random
-import torch
-import numpy as np
 from collections import deque, namedtuple
+
+import numpy as np
+import torch
 
 
 class ReplayBuffer:

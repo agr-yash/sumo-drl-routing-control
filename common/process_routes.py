@@ -1,7 +1,7 @@
-import xml.etree.ElementTree as ET
-import random
 import argparse
+import random
 import sys
+import xml.etree.ElementTree as ET
 
 
 def add_vehicle_types(input_file, output_file, av_mpr):

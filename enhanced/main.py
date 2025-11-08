@@ -1,15 +1,15 @@
 import os
-import sys
 import random
-from collections import defaultdict
-import numpy as np
-import traci
-from dqn_agent import DQNAgent
-
+import sys
 import xml.etree.ElementTree as ET
-import pandas as pd
+from collections import defaultdict
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import traci
+
+from .dqn_agent import DQNAgent
 
 SUMO_CFG = "simulation.sumocfg"
 SUMO_CMD = ["sumo", "-c", SUMO_CFG, "--tripinfo-output", "tripinfo.xml"]
@@ -82,7 +82,7 @@ def parse_tripinfo_xml(file_path="tripinfo.xml"):
     return metrics
 
 
-csv_path = "training_metrics.csv"
+csv_path = "enhanced_training_metrics.csv"
 if not os.path.exists(csv_path):
     pd.DataFrame(
         columns=[
@@ -259,7 +259,7 @@ def train():
     agent = DQNAgent(
         state_size=STATE_SIZE, action_size=ACTION_SIZE, total_episodes=NUM_EPISODES
     )
-    checkpoint_dir = "checkpoints/dqn"
+    checkpoint_dir = "checkpoints/enhanced_dqn"
     os.makedirs(checkpoint_dir, exist_ok=True)
     latest_checkpoint = None
     if os.path.exists(checkpoint_dir):
@@ -453,7 +453,7 @@ def train():
     plt.title("Training Reward Progress")
     plt.grid(True)
     plt.legend()
-    plt.savefig("reward_progress.png", bbox_inches="tight")
+    plt.savefig("enhanced_reward_progress.png", bbox_inches="tight")
 
     plt.figure(figsize=(10, 6))
     plt.plot(episodes, smooth(df["avg_dur_AV"]), label="AV Duration (s)")
@@ -463,7 +463,7 @@ def train():
     plt.title("Average Trip Duration per Episode")
     plt.legend()
     plt.grid(True)
-    plt.savefig("duration_progress.png", bbox_inches="tight")
+    plt.savefig("enhanced_duration_progress.png", bbox_inches="tight")
 
     plt.figure(figsize=(10, 6))
     plt.plot(episodes, smooth(df["avg_wait_AV"]), label="AV Waiting (s)")
@@ -473,7 +473,7 @@ def train():
     plt.title("Average Waiting Time per Episode")
     plt.legend()
     plt.grid(True)
-    plt.savefig("waiting_progress.png", bbox_inches="tight")
+    plt.savefig("enhanced_waiting_progress.png", bbox_inches="tight")
 
     plt.figure(figsize=(10, 6))
     plt.plot(episodes, smooth(df["avg_loss_AV"]), label="AV Time Loss (s)")
@@ -483,7 +483,7 @@ def train():
     plt.title("Average Time Loss per Episode")
     plt.legend()
     plt.grid(True)
-    plt.savefig("timeloss_progress.png", bbox_inches="tight")
+    plt.savefig("enhanced_timeloss_progress.png", bbox_inches="tight")
 
     plt.figure(figsize=(10, 6))
     plt.plot(episodes, smooth(df["avg_reroute_AV"]), label="AV Reroutes")
@@ -492,7 +492,7 @@ def train():
     plt.title("Average AV Reroutes per Episode")
     plt.legend()
     plt.grid(True)
-    plt.savefig("reroutes_progress.png", bbox_inches="tight")
+    plt.savefig("enhanced_reroutes_progress.png", bbox_inches="tight")
 
     return scores
 
