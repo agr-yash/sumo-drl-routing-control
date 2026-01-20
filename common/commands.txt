@@ -1,5 +1,5 @@
 source final_env/bin/activate
-conda activate sumo_env
+# for dgx -> conda activate sumo_env
 
 screen -S train_screen
 to detach - ctrl-a -> d
@@ -20,3 +20,6 @@ Then adding vtypes in .rou.xml:
     <param key="tau" value="1.5" />
     <param key="politeness" value="0" />
 </vType>
+
+
+python3 main.py --agent-type enhanced
